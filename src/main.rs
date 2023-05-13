@@ -1,16 +1,15 @@
 
 /*
-
-Chaos distortion effect (for guitar) in which a sample's absolute value determines a width for taking random samples to its left or to its right.
-We have a limit for noise cutoff and a width paramter.
+"Chaos Distortion" is temporal distortion of sample data with probability coupled with amplitude.
+chaostortion input.wav 4.5 800 512
 */
 
 use hound;
-use rand::{Rng, SeedableRng};
-use rand::rngs::StdRng;
+use rand::Rng;
+use rand::rngs::ThreadRng;
 use std::env;
 
-fn mapchaos(generator: &mut StdRng, data: &Vec<i32>, idx: usize, limit: i32, maxwidth: usize) -> i32{
+fn mapchaos(generator: &mut ThreadRng, data: &Vec<i32>, chaos_multiplier: f64, sample_max: f64, idx: usize, limit: i32, maxwidth: usize) -> i32{
 
     if data[idx] == 0 {
 
@@ -26,21 +25,30 @@ fn mapchaos(generator: &mut StdRng, data: &Vec<i32>, idx: usize, limit: i32, max
 
     let mut idx = idx;
 
-    let isnegative = if data[idx] < 0 { true } else { false };
-
-    let spread: usize = maxwidth / i32::abs(data[idx]) as usize;
+    let isnegative = data[idx] < 0;
     
-    if spread <= 1 {
+    if maxwidth <= 1 {
 
         return data[idx];
 
     }
 
-    if maxwidth > 1 {
+    let current_sample_fl: f64 = i32::abs(data[idx]) as f64;
+    let mut probability_of_distort_sample = (sample_max * chaos_multiplier) / current_sample_fl;
+
+    if probability_of_distort_sample > 1.0 {
+
+        probability_of_distort_sample = 1.0;
+
+    }
+
+    let mutate_sample: bool = generator.gen::<f64>() % 1.0 < probability_of_distort_sample;
+
+    if maxwidth > 1 && mutate_sample {
 
         let sign = generator.gen_range(0..2);
         
-        let idxdelta: usize = generator.gen_range(1..spread) as usize;
+        let idxdelta: usize = generator.gen_range(1..maxwidth) as usize;
 
         // negative
         if sign == 0 {
@@ -96,27 +104,29 @@ fn main() {
 
     let args: Vec<_> = env::args().collect();
 
-    if args.len() <= 2 {
+    if args.len() <= 3 {
 
-        println!("chaostortion wavefile.wav limit width");
+        println!("chaostortion wavefile.wav chaos_multiplier limit width");
         return;
 
     }
 
-    let limit: i32 = args[2].trim().parse().expect("Failed to read limit");
-    let abswidth: usize = args[3].trim().parse().expect("Failed to read width");
+    let fname: &str = args[1].trim();
+    let chaos_multiple: f64 = args[2].trim().parse().expect("Failed to read chaos chaos_multiplier");
+    let limit: i32 = args[3].trim().parse().expect("Failed to read limit");
+    let abswidth: usize = args[4].trim().parse().expect("Failed to read width");
 
     let mut data: Vec<i32> = Vec::new();
 
-    let mut generator = StdRng::seed_from_u64(0);
+    let mut generator = rand::thread_rng();
 
     // Read the wave
-    let mut wavreader = hound::WavReader::open(args[1].trim()).expect("Failed to open file");
+    let mut wavreader = hound::WavReader::open(fname).expect("Failed to open file");
 
     // wave file spec
     let spec = wavreader.spec();
 
-    let mut wavwriter = hound::WavWriter::create("out.wav", spec).expect("Failed to create output wave");
+    let mut wavwriter = hound::WavWriter::create("out_f.wav", spec).expect("Failed to create output wave");
 
     let samplebitdepth = spec.bits_per_sample - 1;
     let bitfeildrange = i32::pow(2, samplebitdepth as u32) - 1;
@@ -134,7 +144,7 @@ fn main() {
     // mutate 
     for index in 0..data.len() {
 
-        let mut mutant: i32 = mapchaos(&mut generator, &data, index, limit, abswidth);
+        let mut mutant: i32 = mapchaos(&mut generator, &data, chaos_multiple, bitfeildrange as f64, index, limit, abswidth);
         
         if mutant > bitfeildrange {
 
