@@ -106,7 +106,7 @@ fn main() {
 
     if args.len() <= 3 {
 
-        println!("chaostortion wavefile.wav chaos_multiplier limit width");
+        println!("./main wavefile.wav chaos_multiplier limit width");
         return;
 
     }
